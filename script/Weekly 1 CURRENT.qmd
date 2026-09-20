@@ -1,0 +1,356 @@
+---
+title: "Weekly 1: Formula 1 Data"
+author: "Danielle Pruitt"
+format: html
+embed-resources: true
+editor: visual
+---
+
+## 
+
+## Overview
+
+You want to know whether qualifying performance is related to finishing performance in Formula 1.
+
+That turns out to be two problems, not one. Qualifying results and race results live in separate tables, so you have to connect them. And the qualifying data do not cover the whole history of the results data, so connecting them quietly decides which races your answer is about.
+
+Your job is to work out what can be connected, what cannot, and what that means for the scope of the question you started with.
+
+A few things:
+
+1.  Add `#| echo: false` to your code blocks. It will make your life and mine easier. I put it in the first two to remind you. After that you'll need to insert your own.
+2.  Use a new block when you move to a new task. Don't put everything in one.
+3.  Code goes in the blocks. **Answers go outside them**, in the document, as prose. A comment inside a code chunk is not an answer.
+4.  Data dictionaries for each CSV are on Canvas.
+
+## Your data
+
+You will use three tables:
+
+- `results.csv`
+- `qualifying.csv`
+- `races.csv`
+
+Import the three files. You'll need to tell R to treat `""`, `"NA"`, and `"\\N"` as NA values. Run `?read_csv` in your console to see how the `na = c()` argument works.
+
+```{r}
+#| warning: false
+library(tidyverse)
+results <- read.csv("results.csv",
+                    na = c("", 'NA', "\\N"))
+
+qualifying <- read.csv("qualifying.csv",
+                    na = c("", 'NA', "\\N"))
+races <- read.csv("races.csv",
+                    na = c("", 'NA', "\\N"))
+
+
+```
+
+Inspect your tables.
+
+```{r}
+#| warning: false 
+glimpse(results)
+
+glimpse(qualifying)
+        
+glimpse(races)
+```
+
+## Before moving forward
+
+For each table, answer:
+
+> What does one row represent? For results, one row represents a particular car's standing in a race. For qualifying, one row represents a car that initially qualified for a race. For races, one row represents a car race,
+
+> What variable uniquely identifies one row? For results, resultID uniquely identifies one row. For qualifying, qualifyID uniquely identifies one row, For races, raceID uniquely identifies one row.
+
+> What variable(s) connect this table to the other tables? For results, raceID connects it to the race table, driverID connects it to the drivers table, and constructorID connects it to the constructors table.. For qualifying, raceID connects it to the race table, driverID connects it to the drivers table, and constructorID connects it to the constructors table.. For races, driverID connects it to the drivers table,
+
+## What is the grain?
+
+You are ultimately interested in **qualifying performances**, so your final table needs to preserve the grain that lets you make that comparison.
+
+> Which table should establish the grain of your final analytic table? Why? The qualifying table should establish the grain of my final analytic table because I'm most interested in the qualifying performances.
+
+Now build smaller working tables with only the variables you need.
+
+Your qualifying table should include:
+
+1.  `qualifyId`
+
+2.  `raceId`
+
+3.  `driverId`
+
+4.  `position`
+
+    ```{r}
+    #| warning: false
+    qualifying_smaller <- qualifying %>%
+      select(qualifyId, raceId, driverId, position)
+    ```
+
+Your results table should include:
+
+1.  `resultId`
+
+2.  `raceId`
+
+3.  `driverId`
+
+4.  `positionOrder`
+
+    ```{r}
+    #| warning: false
+    results_smaller <- results %>%
+      select(resultId, raceId, driverId, positionOrder)
+
+    ```
+
+Your races table should include:
+
+1.  `raceId`
+
+2.  `year`
+
+3.  `name`
+
+    ```{r}
+    #| warning: false
+    races_smaller <- races %>%
+      select(raceId, year, name)
+
+    ```
+
+Verify your primary keys before you use them. For each table, check whether the identifying variable is actually unique, and whether any of your joining variables are missing.
+
+```{r}
+#| warning: false
+unique(qualifying_smaller$qualifyId)
+filter(qualifying_smaller, qualifyId == "NA")
+
+unique(races_smaller$raceId)
+filter(races_smaller, raceId == "NA")
+
+unique(results_smaller$resultId)
+filter(results_smaller, resultId == "NA")
+```
+
+> Did every key check pass? What would it have meant for the joins ahead if one hadn't? Yes, every primary key has only unique values and no NA values. If one of these checks did not pass, the joins would have had a hard time matching all of the observations. The unmatched observations could have been omitted (inner join) or resulted in NA values (left join).
+
+## Connect qualifying and race results
+
+> Add finishing order to each qualifying record, wherever a matching race result exists.
+
+A note before you write it: `join_by()` takes more than one variable. Think about what it takes to pin down a single result. Is knowing the driver enough? Two drivers can finish third in different races. Two results can come from the same race. What combination actually identifies one driver's result in one race?
+
+Answer these **before** you run the join:
+
+> What should one row represent afterward? One row should represent a car that qualified for the race, with result-level information.
+
+> Should the number of qualifying rows change? No, the number of qualifying rows should stay the same.
+
+Now actually do the join.
+
+```{r}
+#| warning: false
+qualifying_smaller_joined <- qualifying_smaller %>%
+  left_join(results_smaller, join_by(driverId, raceId),
+             relationship = "one-to-one")
+```
+
+> Use `relationship =` to state the cardinality you expect. Did R agree with you? If it didn't, what does that tell you about the data? Yes, R agreed with my expected cardnality.
+
+> Do any qualifying records have no matching race result? How many?
+
+```{r}
+#| warning: false
+filter(qualifying_smaller_joined, resultId == "NA")
+```
+
+No, all qualifying records have matching race results.
+
+Then add the race year and race name to your joined table.
+
+> Should that join change your row count? No, that should not change my row count.
+
+```{r}
+#| warning: false
+all_three_joined <- qualifying_smaller_joined %>%
+  left_join(races_smaller, join_by(raceId))
+```
+
+## Investigate the historical coverage
+
+So far you've worked outward from the qualifying records, it's where you started and attached results to. That answers "what happened to the drivers we have qualifying data for."
+
+> But how much of Formula 1's race results history can actually be connected to qualifying data?
+
+You can't answer this by comparing row counts. The two tables have different grains and different numbers of rows. What you can compare is **which race-driver combinations appear in each one**.
+
+Build a table containing every distinct `raceId`–`driverId` combination in `results`. Then build the same thing from `qualifying`.
+
+```{r}
+#| warning: false
+results_distinct <- results %>%
+  distinct(raceId, driverId)
+
+qualifying_distinct <- qualifying %>%
+  distinct(raceId, driverId)
+```
+
+> What does one row represent in each of these tables? In the results_distinct table, one row represents a driver in a particular race. In the qualifying_distinct table, one row represents a driver that was qualified for a particular race.
+
+> Why `distinct()`? What would you be counting if you left it out? If I did not use distinct, I would be counting repeated driver Ids throughout the race Ids.
+
+Now find the combinations that appear in the results data but *not* in the qualifying data.
+
+```{r}
+#| warning: false
+unmatched_results <- results_distinct %>%
+  anti_join(qualifying_distinct, join_by(raceId, driverId))
+
+
+```
+
+> How many are there? 16,176 combinations appear in the results data but not in the qualifying data.
+
+> What proportion of all result combinations is that? This is 64% of all result combinations.
+
+Attach the race year to those unmatched combinations, then plot the count of unmatched combinations by year.
+
+```{r}
+#| warning: false
+unmatched_with_year <- unmatched_results %>%
+  inner_join(races, join_by(raceId))
+
+unmatched_with_year %>%
+  ggplot(aes(x = year)) +
+  geom_bar() +
+  labs(x = "Year", y = "Unmatched Results", 
+       title = "Results Without Qualifying Records by Year")
+  
+
+
+```
+
+> Are the unmatched records spread evenly across Formula 1 history? No, more unmatched records occurred between 1989 and 2001. There are very few unmatched records after 2001.
+
+> Roughly when does substantial qualifying coverage begin? Substantial qualifying coverage began around 2002.
+
+Do not speculate about *why* particular records are missing unless the documentation supports it. Just describe it.
+
+## The payoff
+
+Using only the records where you have both a qualifying position and a finishing order, make a plot showing the relationship between the two.
+
+```{r}
+#| warning: false
+
+ggplot(qualifying_smaller_joined, aes(x = position, y = positionOrder)) +
+  geom_col() +
+  labs(x = "Qualifying Position", y = "Finishing Order",
+       title = "Finishing Order by Qualifying Position")
+```
+
+> Describe what you see in two or three sentences. The correlation between qualifying position and finishing order shows a lower (better) qualifying position is associated a better finishing position. The drivers that have higher numbers for qualifying position tend to finish behind drivers with better qualifying positions.
+
+## What this means for your question
+
+You opened by asking whether qualifying performance is related to finishing performance. You now know something about what that question can actually be asked of.
+
+> If you compare qualifying position to finishing order using only records that have both, what population are you actually describing? I'm describing only the drivers from after about 2002, when qualifying records started having substantial coverage.
+
+## Disclosure appendix
+
+> What did you try first? Include the code you wrote and the actual error message, or a clear description of the problem if there was no error. After saving this Quarto and coming back to work on it, I got this error when running the first chunk - "Error in file(file, "rt") : cannot open the connection."
+>
+> If you used an AI system: the exact prompt, exactly what it returned, what it got wrong or left unclear, and what you changed. I tried to download the files again with the same results. I Googled the error with this prompt-"Error in file(file, "rt") : cannot open the connection in R." Google AI gave me the following - "The **`Error in file(file, "rt") : cannot open the connection`** error in R means that **R is trying to read a file but cannot find or access it**. The `"rt"` part stands for "read text," which usually happens when you call functions like `read.csv()` or `read.table()`. \[[1](https://www.geeksforgeeks.org/r-language/how-to-fix-in-r-error-in-filefile-rt-cannot-open-the-connection/), [2](https://r-statistics.co/R-Error-Cannot-Open-Connection.html), [3](https://www.programmingr.com/r-error-messages/error-in-filefile-rt-cannot-open-the-connection/), [4](https://www.youtube.com/watch?v=U_Wt6HP_IBE&t=1)\]
+>
+> Nine times out of ten, this is caused by a mismatched working directory, a typo in the file path, or an incorrect file extension. \[[1](https://r-statistics.co/R-Error-Cannot-Open-Connection.html), [2](https://www.programmingr.com/r-error-messages/error-in-filefile-rt-cannot-open-the-connection/)\]
+>
+> **🛠️ Step-by-Step Troubleshooting Checklist**
+>
+> **1. Verify R's Working Directory**
+>
+> If you use a relative file path (e.g., `read.csv("data.csv")`), R looks strictly inside its current working directory. \[[1](https://stackoverflow.com/questions/28597536/error-in-filefile-rt-cannot-open-the-connection-cannot-open-file-specd)\]
+>
+> - Check where R is looking right now:
+>
+>   **R**
+>
+>   ```         
+>   getwd() 
+>   ```
+>
+>   Use code with caution.
+>
+> - See all files in that specific folder to check if your file is actually there:
+>
+>   **R**
+>
+>   ```         
+>   list.files() 
+>   ```
+>
+>   Use code with caution.
+>
+> - If your file is elsewhere (like your Desktop), update your working directory:
+>
+>   **R**
+>
+>   ```         
+>   setwd("C:/Users/YourName/Desktop/")  
+>   ```
+>
+>   Use code with caution.
+>
+>   \[[1](https://www.youtube.com/watch?v=pbOujfQGl9Y&t=89), [2](https://www.geeksforgeeks.org/r-language/how-to-fix-in-r-error-in-filefile-rt-cannot-open-the-connection/)\]
+>
+> **2. Run a Quick Test**
+>
+> You can force R to check if it can even see the file at the exact path you are using: \[[1](https://stackoverflow.com/questions/27466317/error-in-filefile-rt-cannot-open-the-connection)\]
+>
+> **R**
+>
+> ```         
+> file.exists("your_file_name.csv") 
+> ```
+>
+> Use code with caution.
+>
+> - **If it returns `FALSE`:** R physically cannot find that file. Double-check your spelling or use the absolute path instead (e.g., `read.csv("C:/path/to/file.csv")`). \[[1](https://stackoverflow.com/questions/56746184/how-to-fix-error-in-filefile-rt-cannot-open-the-connection), [2](https://stackoverflow.com/questions/28597536/error-in-filefile-rt-cannot-open-the-connection-cannot-open-file-specd)\]
+>
+> **3. Fix Windows Backslashes (`\`)**
+>
+> If you copied a file path directly from Windows File Explorer, it will look like `C:\Users\Name\Documents`. **R treats backslashes as escape characters**, which mangles the path. \[[1](https://r-statistics.co/R-Error-Cannot-Open-Connection.html)\]
+>
+> - **Fix:** Either change all backslashes to forward slashes (`/`) or double up the backslashes (`\\`):
+>
+>   **R**
+>
+>   ```         
+>   # Correct format read.csv("C:/Users/Name/Documents/my_data.csv") # Alternative correct format read.csv("C:\\Users\\Name\\Documents\\my_data.csv") 
+>   ```
+>
+>   Use code with caution.
+>
+>   \[[1](https://www.geeksforgeeks.org/r-language/how-to-fix-in-r-error-in-filefile-rt-cannot-open-the-connection/), [2](https://stackoverflow.com/questions/56746184/how-to-fix-error-in-filefile-rt-cannot-open-the-connection)\]
+>
+> **4. Watch Out for Hidden File Extensions**
+>
+> Windows often hides common file extensions. If your file is named `my_data.csv` but Windows hides the extension, you might have accidentally named it `my_data.csv.csv` or `my_data.csv.txt`. \[[1](https://www.youtube.com/watch?v=U_Wt6HP_IBE&t=1)\]
+>
+> - Check your `list.files()` output carefully to see the true, literal name of the file. \[[1](https://forum.posit.co/t/error-in-file-file-rt-cannot-open-the-connection/149933)\]
+>
+> **5. Check If the File Is Locked**
+>
+> If you have the dataset open in **Microsoft Excel** or another program, Windows may lock the file, preventing R from creating a connection to read it. \[[1](https://www.programmingr.com/r-error-messages/error-in-filefile-rt-cannot-open-the-connection/)\]
+>
+> - **Fix:** Close Excel and try running your R code again. \[[1](https://www.programmingr.com/r-error-messages/error-in-filefile-rt-cannot-open-the-connection/)\]
+>
+> If you'd like me to pinpoint the exact issue, could you share **the line of R code** you are trying to run and the **file path** you are targeting?" After trying to set the working directory as it suggested, I went ahead and moved my data files to the "script" folder, which is the working directory.
+
+> If you didn't use one, say so. Other than the issue pointed out above, no other outside resources were used (except when I emailed you about the lack of output when I first started).

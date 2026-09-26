@@ -95,15 +95,15 @@ pa_clean <- pa_clean %>%
       str_replace_all(fixed("-"), " ") |> 
       str_squish()
   )
-
+glimpse(pa_clean)
 pa_clean |> 
   filter(
     employer %in% c(
       "NOT EMPLOYED", "NOT-EMPLOYED",
       "SELF EMPLOYED", "SELF-EMPLOYED", "SELF"
-    )
-  ) |> 
-  count(employer_no_hyphen, sort = TRUE)
+    )) %>%
+      count(employer_no_hyphen, sort = TRUE)
+  
 
 # What collapsed? What didn't?
 

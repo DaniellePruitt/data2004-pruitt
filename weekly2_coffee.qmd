@@ -1,0 +1,265 @@
+---
+title: "Weekly 2: Coffee Ratings"
+author: "Danielle Pruitt"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Overview
+
+You want to know which producers grow the best-rated coffee.
+
+That sounds like a `group_by()` and a `summarise()`. The problem is that `producer` was typed by different people in different ways, so the same producer can appear under several labels, and some labels are not producers at all.
+
+Your job is to work out how much of that you can fix, how much you shouldn't, and what that does to the answer.
+
+A few things:
+
+1.  Add `#| echo: false` to your code blocks.
+2.  Use a new block when you move to a new task.
+3.  Code goes in the blocks. **Answers go outside them**, as prose. A comment inside a code chunk is not an answer.
+4.  Keep the original `producer` column. Every cleaned version goes in a **new** column.
+
+Due Monday at 8pm.
+
+## Your data
+
+Import `coffee_ratings.csv` and inspect it.
+
+```{r}
+#| warning: false
+library(tidyverse)
+
+coffee_ratings <- read.csv("data/raw/coffee_ratings.csv")
+glimpse(coffee_ratings)
+
+```
+
+## Before you start
+
+> What does one row represent? One row represents one cup of coffee that was rated.
+
+> Is there a column that uniquely identifies a row? How would you check? No, there is not a single column that uniquely identifies a row. I would check by looking at the documentation for this dataset.
+
+> Is `producer` a key? What does it mean that the same producer can appear on many rows? No, producer is not a key because multiple rows can have the same producer. This means one producer makes multiple cups of coffee.
+
+## How many producers?
+
+Count the distinct values of `producer`.
+
+```{r}
+#| warning: false
+n_distinct(coffee_ratings$producer)
+sum(is.na(coffee_ratings$producer))
+```
+
+> How many distinct values are there? There are 692 distinct values.
+
+> How many rows have no producer recorded? Does your distinct count include "missing" as one of its values? How would you check? 231 rows have no producers recorded. No, my distinct count does not include "missing" as one of its values.
+
+> Why shouldn't you read that number as the number of distinct producers? The same producer might be written a slightly different way (ex capital vs. lower case letters), so the actual number of distinct producers is probably less than 692.
+
+## Normalize the representation
+
+Create a new column, `producer_clean`, that makes the producer labels consistent in case and whitespace. Keep `producer`.
+
+```{r}
+#| warning: false
+coffee_clean <- coffee_ratings %>%
+  mutate(
+    producer_clean = producer %>%
+      str_to_upper() %>%
+      str_squish()
+  )
+
+n_distinct(coffee_clean$producer_clean)
+```
+
+> How many distinct values does `producer_clean` have? Producer_clean has 666 distinct values.
+
+> Is that the number of producers now? What does the reduction establish, and what does it *not* establish? Yes, this is now the number of producers. Reduction establishes a consistent capitalization and spacing method. It does not establish the meaning of "several" in the producer_clean column, for example.
+
+## Which labels actually merged?
+
+A single number doesn't tell you what happened. Build a table showing every `producer_clean` value that more than one raw `producer` value was combined into, along with the raw values that went into it.
+
+```{r}
+#| warning: false
+merged_labels <- coffee_clean %>%
+  select(producer, producer_clean) %>%
+  group_by(producer_clean) %>%
+  filter(n_distinct(producer) > 1) %>%
+  distinct() %>%
+  arrange(producer_clean)
+```
+
+> How many cleaned labels absorbed more than one raw label? 48 cleaned labels absorbed more than one raw label.
+
+> Look through them. Is every merge one you would stand behind? Yes, I would stand behind every merge.
+
+> Is this table more useful than knowing the number of labels went down? Why? Yes, this table is much more useful because it shows me exactly which raw producers were collapsed down into the producer_clean values.
+
+## Does it change anything?
+
+Compare the La Plata coffees before and after normalizing. For each version, report the number of coffees and the mean and median `total_cup_points`.
+
+```{r}
+#| warning: false
+la_plata <- coffee_ratings %>%
+  filter(region == "la plata")
+la_plata %>%
+  summarise(
+    mean_cup_points = mean(total_cup_points),
+    median_cup_points = median(total_cup_points)
+  )
+
+la_plata_clean <- coffee_clean %>%
+  filter(region == "la plata")
+
+la_plata_clean %>%
+  summarise(
+    mean_cup_points = mean(total_cup_points),
+    median_cup_points = median(total_cup_points)
+  )
+```
+
+> What changed more: the number of coffees or the average score? The number of coffees changed more than the average score.
+
+> Suppose you had reported how many coffees La Plata produced using the raw column. How far off would you have been? I would have been one coffee off.
+
+## What case and whitespace didn't catch
+
+Some labels still differ only in punctuation, i.e., a period, a comma, a slash.
+
+Sort the distinct values of `producer_clean` and read through them. Near-duplicates end up next to each other.
+
+```{r}
+#| warning: false
+sorted_producers_clean <- sort(unique(coffee_clean$producer_clean))
+sorted_producers_clean
+```
+
+> Find at least **three** pairs of labels that differ only in punctuation. "AGRICOLA EL PILAR, S.A." and "AGRICOLA EL PILAR, SA.", "YEH, LI CHUAN" and "YEH, LI CHUAN.", "TEÓFILO NARVÁEZ" and "TEÓFILO NARVÁEZ :"
+
+Now use exact replacement to make each pair consistent. Change only the values you identified and nothing else.
+
+```{r}
+#| warning: false
+coffee_clean <- coffee_clean |> 
+  mutate(
+    producer_clean = case_when(
+      producer_clean == "AGRICOLA EL PILAR, S.A." ~ "AGRICOLA EL PILAR, SA.",
+      producer_clean == "YEH, LI CHUAN" ~ "YEH, LI CHUAN.",
+      producer_clean == "TEÓFILO NARVÁEZ" ~ "TEÓFILO NARVÁEZ :",
+      TRUE ~ producer_clean
+    )
+  )
+
+coffee_clean
+```
+
+> For each change, say why you're confident it's the same producer. The strings only differed in punctuation so it is reasonable to assume that they are actually the same producer. It's just a change in how the producers were written in the dataset.
+
+> How long did it take to find those by reading? How many labels did you have to look at? It took about a half hour to find those, and I actually had to ask another set of eyes. I had to look at all of the labels once, then about 100 of them.
+
+## The top producers
+
+Using `producer_clean`, find the ten producers with the most coffees in the data.
+
+```{r}
+#| warning: false
+top_ten_producers <- coffee_clean %>%
+  group_by(producer_clean) %>%
+  summarise(coffee_count = n()) %>%
+  arrange(desc(coffee_count)) %>%
+  slice_head(n = 10)
+```
+
+Look at that list carefully.
+
+> Is every entry in it a producer? If not, which ones aren't, and what do they mean? No, the first entry is a NA value. This means most of the coffees made don't have a producer listed in the dataset.
+
+> Is any single producer split across more than one row of the list? Yes, IPANEMA AGRICOLA is split across rows 6 and 7.
+
+Now look at these four raw labels:
+
+- Ipanema Agricola
+- Ipanema Agricola S.A
+- Ipanema Agrícola SA
+- Ipanema Coffees
+
+> Should these be combined into one producer? **Don't recode them.** Explain whether combining them would be normalization or classification, and what evidence you'd need before doing it. Raw labels 2 and 3 can be combined because the only difference is in punctuation, and combining these would be normalization. If we combine all 4, that would be classification and we would need to investigate this producer to make sure that all 4 labels are representing the same producer before combining them.
+
+> If you did combine them, what would happen to your top-ten list? My top 10 list would include another producer, since Ipanema Agricola would only take up 1 row.
+
+## What this means for your question
+
+> A classmate says: "I reduced the producer column from 692 labels to 666, so the cleaned column is better." Is that justified? Explain. Yes, this is justified because the decrease from 692 labels to 666 labels occurred due to normalization, which makes the data easier to work with without changing the meaning of the data points.
+
+> You set out to find which producers grow the best-rated coffee. Given everything above, what would you need to tell someone before they trusted your answer? I would need to explain that I combined producers that only differed in their capitalization, spaces, and punctuation and that the majority of the coffee cups had no producer listed.
+
+## Disclosure appendix
+
+> What did you try first? Include the code you wrote and the actual error message, or a clear description of the problem if there was no error. I first tried selecting just the producer and producer_clean columns and grouping them by producer_clean. This was not answering the question of how many raw labels matched with each clean label. I didn't know how to do this, so I asked Gemini. I then was having a hard time determining the top 10 coffee producers. I started to use group_by, summarize, and filter but didn't know how to finish the commands. I then asked Gemini for help.
+
+> If you used an AI system: the exact prompt, exactly what it returned, what it got wrong or left unclear, and what you changed. Prompt for 1st issue: For my data class, I used the str_squish and str_to_upper functions in r to clean up some strings in a coffee dataset, specifically the producers column. I'm having a hard time writing code to answer the attached question. How can I make this table? (I also included an image of the question and my attempt). Output for 1st issue:
+>
+> The task in "Screenshot 2026-09-25 195036.png" asks you to identify which `producer_clean` labels were created by merging multiple distinct raw `producer` values.
+>
+> You are already on the right track by selecting your columns and grouping by `producer_clean`. To finish the table, you need to count the unique raw values within each group, filter for the groups that have more than one, and display the results.
+>
+> Here are the two most common `dplyr` approaches to build this table.
+>
+> **Approach 1: The Long Format (Recommended)**
+>
+> This is the most idiomatic "tidy data" way. It filters for groups with multiple raw values and uses `distinct()` to show the unique pairs.
+>
+> R
+>
+> ```         
+> merged_labels_long <- coffee_clean %>%   select(producer, producer_clean) %>%   group_by(producer_clean) %>%   # Keep only groups that merged more than 1 unique raw value   filter(n_distinct(producer) > 1) %>%   # Isolate the unique pairings to see exactly what merged   distinct() %>%   arrange(producer_clean)  merged_labels_long 
+> ```
+>
+> **Approach 2: The Wide Format**
+>
+> If your instructor specifically wants a single row per `producer_clean` value with all the raw values listed out in a single cell beside it, you can use `summarize()` and `paste()`.
+>
+> R
+>
+> ```         
+> merged_labels_wide <- coffee_clean %>%   select(producer, producer_clean) %>%   group_by(producer_clean) %>%   summarize(     raw_count = n_distinct(producer),     raw_values_combined = paste(unique(producer), collapse = " | ")   ) %>%   # Filter down to only the labels that actually merged multiple items   filter(raw_count > 1)  merged_labels_wide 
+> ```
+>
+> Either method answers the core question, but Approach 1 is usually preferred in R because it keeps your data frame in a format that's easy to continue manipulating if needed. Let me know if you run into any errors running these! I pasted in the code for approach 1, which worked. Prompt for 2nd issue: Approach 1 worked. Now I'm trying to determine the top 10 coffee producers. Attached is an image of my attempt. I'm stuck on how to finish the summarize and filter commands. Is this the right approach? (I also included a picture of my screen). Output for 2nd issue:
+>
+> You are close, but there are two main logic changes needed:
+>
+> 1.  **Counting rows:** Instead of `coffee_count = count`, use `n()` inside `summarise()` (or use `n_distinct()` if counting unique instances).
+>
+> 2.  **Top 10 instead of filtering:** `filter()` checks boolean conditions (e.g., `coffee_count > 5`), so to get the top 10, you should sort the dataset in descending order using `arrange(desc(...))` and grab the first 10 rows using `slice_head(n = 10)`. Alternatively, you can use `slice_max()`.
+>
+> Here is how to complete that code chunk:
+>
+> ### Method 1: Using `summarise()`, `arrange()`, and `slice_head()`
+>
+> R
+>
+> ```         
+> coffee_clean %>%   group_by(producer_clean) %>%   summarise(coffee_count = n()) %>%   arrange(desc(coffee_count)) %>%   slice_head(n = 10) 
+> ```
+>
+> ### Method 2: The Shortcut (`count()`)
+>
+> In `dplyr`, `count()` combines `group_by()`, `summarise(n = n())`, and can automatically sort the results using `sort = TRUE`:
+>
+> R
+>
+> ```         
+> coffee_clean %>%   count(producer_clean, sort = TRUE, name = "coffee_count") %>%   slice_head(n = 10) 
+> ```
+>
+> > **Note on the questions below the code block:** Pay close attention to values like `NA`, `"-"`, or `"1"` in `producer_clean` when reviewing your top 10 list—the questions ask if every entry is an actual producer and whether some might need further filtering or cleaning! I changed my code to match the code in the method 1 box.
+
+> If you didn't use one, say so.

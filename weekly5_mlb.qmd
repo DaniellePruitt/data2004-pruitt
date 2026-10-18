@@ -1,0 +1,317 @@
+---
+title: "Weekly 5: How Did the Reds Do?"
+author: "Danielle Pruitt"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+# **How did the Cincinnati Reds do in the 2026 regular season?**
+
+How many games did they play, how many did they win, and when did they play them? You'll make a request, turn what comes back into a table, and then check whether the table says what you think it says.
+
+A few things:
+
+1.  Add `#| echo: false` to your code blocks.
+2.  Use a new block when you move to a new task.
+3.  Code goes in the blocks. **Answers go outside them**, as prose. A comment inside a code chunk is not an answer.
+4.  Save the raw response to a file **once**, then work from the file. You'll see why in Part 1.
+
+Due Monday at 8pm.
+
+# Part 1: Ask
+
+## The request
+
+These parameters will get you the Reds' 2026 regular season:
+
+| parameter  | value  | meaning               |
+|------------|--------|-----------------------|
+| `sportId`  | `1`    | Major League Baseball |
+| `teamId`   | `113`  | Cincinnati Reds       |
+| `season`   | `2026` |                       |
+| `gameType` | `R`    | regular season        |
+
+Build the request, send it, and check the status.
+
+```{r}
+#| warning: false
+library(tidyverse)
+library(httr2)
+library(httpuv)
+Reds_request <- request("https://statsapi.mlb.com/api/v1/schedule") |>
+  req_url_query(
+    format = "geojson",
+    sportId = 1,
+    teamId = 113,
+    season = 2026,
+    gameType = "R",
+      )
+Reds_request |> 
+  req_dry_run()
+Reds_season <- Reds_request |> 
+  req_perform()
+
+```
+
+## Read the fine print
+
+The first field in every response is `copyright`.
+
+```{r}
+#| warning: false
+resp_status(Reds_season)
+str(Reds_season, max.level = 2)
+
+```
+
+> What does it say? Follow the link it gives you. What kinds of use does MLB permit? MLB permits individual, non-commercial, and non-bulk uses.
+
+> Is this assignment a permitted use? Would it still be if all 25 of us wrote a loop that requested every game of every season? Explain. Yes, this assignment is permitted use. No, it would not still be permitted in that situation because this would be considered "bulk use."
+
+## Save it, then work from the file
+
+Save the raw response to `data/raw/reds_2026.json`. Then read it back in with `jsonlite::read_json()` and use **that** for the rest of the assignment. Put the saving and the reading in **separate** blocks. Once the file is saved, add `#| eval: false` to every block that sends a request **and** to the block that saves, so rendering reads your file instead of asking MLB again.
+
+```{r}
+#| eval: true
+#| warning: false
+library(httr2)
+library(jsonlite)
+request("https://statsapi.mlb.com/api/v1/schedule") |> 
+  req_url_query(sportId = 1, teamId = 113, season = 2026, gameType = "R") |>
+  req_perform(path = "data/raw/reds_2026.json")
+
+
+
+```
+
+![](images/clipboard-9133593.png)
+
+```{r}
+#| eval: true
+#| warning: false
+reds_2026_json <- read_json("data/raw/reds_2026.json")
+names(reds_2026_json)
+```
+
+> Why work from the file instead of sending the request every time you render? Give two reasons. The request may not go through every time the quarto is rendered and if we keep requesting the same dataset each time we render this might fall into the category of "bulk-use," which is not permitted.
+
+> Fill this in:
+>
+> - URL: <https://statsapi.mlb.com/api/v1/schedule>?sportId=1&teamId=113&season=2026&gameType=R
+> - Date and time requested: 10/18/2026 at 1:15pm
+> - Status: 200 (successful request)
+
+> If you ran this same request in March 2027, would you get exactly the same file? What might change? No, I would not get the exactly the same file. The given parameters might change their meaning. The date and time requested would also change.
+
+# Part 2: Make it a table
+
+## Look before you reshape
+
+Use `str()` the way we did in class: look at one date, then one game inside it.
+
+```{r}
+#| warning: false
+str(reds_2026_json, max.level = 5)
+```
+
+> Which parts are `[ ]` (lists of things, which become rows) and which are `{ }` (named things, which become columns)? Write the path from the top of the response down to the Reds' score in one game. The dates are \[ \], which become rows. Events and games are { } which become columns. From the top of the response, go to content, then games, then teams, then home, then score.
+
+## Rectangle it
+
+Create a tibble called `reds` with **one row per entry in `games`** and these columns:
+
+- `game_pk` (`gamePk`)
+- `game_date` (`gameDate`)
+- `official_date` (`officialDate`)
+- `status` (`status` to `detailedState`)
+- `home_id`, `away_id` (the team ids)
+- `home_score`, `away_score`
+
+Start from `tibble(day = sched$dates)`. In class, `features` was one list of earthquakes. Here, games are a list **inside** a list of dates. How many times will you need `unnest_longer()`? Once you're at one row per game, `hoist()` works the way it did in class.
+
+```{r}
+#| warning: false
+
+reds_2026_table <- tibble(day = reds_2026_json$dates) |>
+    unnest_wider(day) |>
+  unnest_longer(games) |>
+  hoist(
+    games,
+    game_pk = "gamePk",
+    game_date = "gameDate",
+    official_date = "officialDate",
+    status = c("status", "detailedState"),
+    home_id = c("teams", "home", "team", "id"),
+    away_id = c("teams", "away", "team", "id"),
+    home_score = c("teams", "home", "score")
+  )
+```
+
+> How many rows does `reds` have? What does `totalGames` say? Reds has 165 rows. Total Games says 1 or 2.
+
+> A Major League regular season is 162 games. What's going on? Some of the dates are double headers, indicated by the 2 in total games.
+
+# Part 3: What is one row?
+
+## Check the key
+
+`gamePk` is MLB's id for a game.
+
+```{r}
+#| warning: false
+n_distinct(reds_2026_table$game_pk)
+table(reds_2026_table$game_pk)
+
+```
+
+> How many distinct `game_pk` values are there? Which ones appear more than once? There are 162 distinct game_pk values. 824490, 824514, and 824518 appear more than once.
+
+> Look at every row for those games, alongside their other columns. What happened to them? These games were postponed and then finished at a later date.
+
+> Hint: you might want to use a filtering join :)
+
+## Fix the grain
+
+You want one row per game that was actually played. Use `distinct(game_pk, .keep_all = TRUE)` below.
+
+```{r}
+#| warning: false
+reds_2026_table %>%
+  distinct(game_pk, .keep_all = TRUE)
+```
+
+> For the games that appeared twice, which row did `distinct()` keep? Look at the scores. Is that the row you wanted? Distinct kept the row with the postponed game. No, that is not the row I wanted.
+
+> Fix it. Show that your result has one row per `game_pk` and that every row has a score.
+
+```{r}
+#| warning: false
+reds_2026_filtered <- reds_2026_table %>%
+  filter(status == "Final")
+n_distinct(reds_2026_filtered$game_pk)
+reds_2026_filtered %>%
+  distinct(game_pk, .keep_all = TRUE)
+```
+
+# Part 4: When did they play?
+
+```{r}
+#| warning: false
+reds_2026 <- reds_2026_filtered %>%
+  mutate(created_date = ymd_hms(game_date))
+```
+
+> Parse `game_date`. What time zone is it in? How do you know? game_date is in military time because the hours are greater than 12.
+
+> For how many games does the **date** part of `game_date` differ from `official_date`? Look at a few. What do they have in common? 16 games fit this criteria. All of these games are away games for the Reds.
+
+```{r}
+#| warning: false
+reds_2026 %>%
+  mutate(game_date_only = as_date(ymd_hms(game_date))) %>%
+  filter(game_date_only != official_date)
+```
+
+> Count the Reds' games by day of the week twice: once using `game_date` and once using `official_date`. Do you get the same counts? Which one answers "what day did they play?" No, I do not get the same counts. The official_date count answers "what day did they play."
+
+```{r}
+#| warning: false
+reds_2026 <- reds_2026 %>%
+  mutate(game_weekday = weekdays(created_date)) 
+mondays <- filter(reds_2026, game_weekday == "Monday")
+tuesdays <- filter(reds_2026, game_weekday == "Tuesday")
+wednesdays <- filter(reds_2026, game_weekday == "Wednesday")
+thursdays <- filter(reds_2026, game_weekday == "Thursday")
+fridays <- filter(reds_2026, game_weekday == "Friday")
+saturdays <- filter(reds_2026, game_weekday == "Saturday")
+sundays <- filter(reds_2026, game_weekday == "Sunday")
+
+reds_2026 <- reds_2026 %>%
+  mutate(official_weekday = weekdays(ymd(official_date)))
+mondays_official <- filter(reds_2026, official_weekday == "Monday")
+tuesdays_official <- filter(reds_2026, official_weekday == "Tuesday")
+wednesdays_official <- filter(reds_2026, official_weekday == "Wednesday")
+thursdays_official <- filter(reds_2026, official_weekday == "Thursday")
+fridays_official <- filter(reds_2026, official_weekday == "Friday")
+saturdays_official <- filter(reds_2026, official_weekday == "Saturday")
+sundays_official <- filter(reds_2026, official_weekday == "Sunday")
+```
+
+> **Optional:** Convert `game_date` to `America/New_York`. Does that make it agree with `official_date`? Would Eastern time be the right choice for a Reds game played in San Diego?
+
+# Disclosure appendix
+
+> What did you try first? Include the code you wrote and the actual error message, or a clear description of the problem if there was no error.
+>
+> I had 4 problems I looked up during this weekly.
+>
+> Problem 1: I was having a hard time reading in the json file.
+>
+> Problem 2: I didn't remember how to use unnest_longer () and unnest_wider() to extract the dates column in the json.
+>
+> Problem 3: I couldn't remember how to parse the dates and was getting all NA values in my created_dates column.
+>
+> Problem 4: I was having a hard time comparing game_dates with official_dates.
+
+> If you used an AI system: the exact prompt, exactly what it returned, what it got wrong or left unclear, and what you changed.
+>
+> Problem 1 prompt: I'm trying to make a table from a .json file using tibble, unnest_longer, and hoist. Attached is a screenshot of my attempt. I get an error message saying that unnest_longer needs a data frame, not a .json. How can I use unnest_longer to get my table ready? I also included an image of my screen.
+>
+> Problem 1 output:
+>
+> The error occurs because `unnest_longer()` expects a **data frame** as its first argument (with a specified column name to unnest), but you passed the raw list `reds_2026_json` directly.
+>
+> Based on the homework instructions in your screenshot ("*games are a list inside a list of dates*"), you need to:
+>
+> 1.  Start by wrapping your dates list into a tibble using `tibble(day = reds_2026_json$dates)`.
+>
+> 2.  Use `unnest_longer()` **twice**: once to unpack the dates, and a second time to unpack the games list.
+>
+> 3.  Once you reach one row per game, your `hoist()` function will work as expected.
+>
+> ### Corrected Code
+>
+> R
+>
+> ```         
+> reds_2026_table <- tibble(day = reds_2026_json$dates) %>%   unnest_longer(day) %>%   unnest_longer(games) %>%   hoist(     games,     game_pk = "gamePk",     game_date = "gameDate",     official_date = "officialDate",     status = c("status", "detailedState"),     home_id = c("teams", "home", "team", "id"),     away_id = c("teams", "away", "team", "id"),     home_score = c("teams", "home", "score")   )
+>
+> Problem 2 prompt: I inputed a picture of my attempt at using unnest_longer () to pull out the dates column.
+>
+> Problem 2 output: The error happens because unnest_longer(day) turned each date into its own row, but the actual contents of that date (including games) are still bundled together inside the day column. games isn't a standalone top-level column yet, which is why R says it doesn't exist.   To fix this, you need to expand the day list-column into separate columns first using unnest_wider(day). This will unpack the date fields (revealing the games list), and then you can use unnest_longer(games) to get one row per game.Corrected CodeRreds_2026_table <- tibble(day = reds_2026_json$dates) |>
+>   unnest_longer(day) |>
+>   unnest_wider(day) |>
+>   unnest_longer(games) |>
+>   hoist(
+>     games,
+>     game_pk = "gamePk",
+>     game_date = "gameDate",
+>     official_date = "officialDate",
+>     status = c("status", "detailedState"),
+>     home_id = c("teams", "home", "team", "id"),
+>     away_id = c("teams", "away", "team", "id"),
+>     home_score = c("teams", "home", "score")
+>   )
+>   
+>   
+>   Problem 3 prompt: Now I want to parse the date column in my newly created table. mdy() is giving me all NA values for created_date. Why is this happening and how do I parse the date correctly?  I also included a picture.
+>   
+>   Problem 3 output: This is happening for two reasons:Format mismatch: mdy() expects dates formatted as Month-Day-Year (e.g., "03/30/2026"), but the MLB API returns timestamps in ISO 8601 format with a time and timezone (e.g., "2026-03-30T19:05:00Z"). Because mdy() cannot parse that structure, it converts everything to NA.   Column name: The homework instructions state to parse game_date, but your code currently attempts to use date.   How to fix itUse ymd_hms() instead of mdy() to properly parse the year, month, day, hour, minute, and second from game_date:   Rreds_2026 <- reds_2026_filtered %>%
+>   mutate(created_date = ymd_hms(game_date))
+> (Note: As hinted by the subsequent questions in your assignment, you can also specify the time zone argument if needed, such as tz = "America/New_York".)   
+>
+> Problem 4 prompt: Now I want to compare game_date with official_date. When I run this block, I get a tibble with 0 rows. However, the next question implies that there should be some differing dates. How do I obtain these?    I also provided a picture.
+>
+> Problem 4 output: You got 0 rows for two reasons:NA values in your column: In your previous step, created_date was created using mdy(date), which failed (resulting in NAs) because date wasn't the right column name and mdy() doesn't parse ISO timestamps. As a result, ymd(created_date) produced all NA values, and filter() automatically drops rows where values are NA.The operator: The question asks for games where the dates differ, but your code filtered for where they are equal (==).   How to fix itTo find the games where the dates differ, you need to parse the correct column (game_date) and use the not-equal (!=) operator:Rreds_2026 %>%
+>   mutate(game_date_only = as_date(ymd_hms(game_date))) %>%
+>   filter(game_date_only != official_date)
+> ```
+
+> If you didn't use one, say so.
+
+# Submit
+
+Submit both the qmd and the final json file.

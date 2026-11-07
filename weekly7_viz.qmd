@@ -1,0 +1,358 @@
+---
+title: "Weekly 7: Who Visits the National Parks?"
+author: "Danielle Pruitt"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Overview
+
+In class, we started from a default chart and asked one question about every change: **what does this choice make the reader see?**
+
+This week you'll make those decisions yourself, on new data: visits to the U.S. National Parks, from the National Park Service, as collected for TidyTuesday. Kentucky has one of the parks in the data: Mammoth Cave.
+
+The question: **Where does Mammoth Cave sit among the National Parks?**
+
+This weekly is about **visualization judgment**. You'll do a little cleaning to get there, but the point is the charts and your reasons for them.
+
+A few things:
+
+1.  Add `#| echo: false` to your code blocks.
+2.  Use a new block when you move to a new task.
+3.  Code goes in the blocks. **Answers go outside them**, as prose. A comment inside a code chunk is not an answer.
+4.  Save the raw data to a file **once**, then work from the file. After it's saved, add `#| eval: false` to the block that downloads it.
+5.  Every chart you hand in should use a colorblind-safe palette, if it uses color at all.
+
+Due Monday, November 9 at 8pm.
+
+# Part 1: Get the data, and know what you're plotting
+
+The data is here:
+
+`https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-09-17/national_parks.csv`
+
+Read it in and save a copy to `data/raw/national_parks.csv`. Then read your saved copy and call it `parks_raw`.
+
+```{r}
+#| warning: false
+#| eval: false
+library(tidyverse)
+library(httr2)
+library(rvest)
+
+
+url <- "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-09-17/national_parks.csv"
+request(url) |> 
+  req_user_agent("Danielle Pruitt, DATA 2004 class, Translyvania University") |> 
+  req_perform(path = "data/raw/national_parks.csv")
+
+```
+
+```{r}
+#| warning: false
+parks_raw <- read.csv("data/raw/national_parks.csv")
+
+
+```
+
+> What type is `year`? Why isn't it numeric? Year is a character. It isn't numeric because some of the year values are "total."
+
+```{r}
+#| warning: false
+glimpse(parks_raw)
+n_distinct(parks_raw$unit_type)
+
+```
+
+> Why would leaving the `Total` rows in create a problem for an analysis of annual visitation? The total rows would be so large that they would affect the scale of the visualizations produced. They would overshadow the annual observations that we're interested in.
+
+> How many kinds of `unit_type` are there? For this assignment, keep only `National Park` records and annual observations. Call the result `np`, and make `year` a number. There are 30 kinds of unit_type.
+
+```{r}
+#| warning: false
+np <- parks_raw |>
+  filter(unit_type == "National Park") |>
+  filter(year != "Total") |>
+  mutate(year = as.numeric(year))
+glimpse(np)
+```
+
+> Before we visualize anything, check whether one row is one park in one year. No, one row is not necessarily one park in one year.
+
+```{r}
+#| warning: false
+nrow(np)
+n_distinct(np$gnis_id)
+n_distinct(np$year)
+
+```
+
+You should find one park that appears twice in the same year. Here's the cleaning decision for it; run this:
+
+```{r}
+#| warning: false
+
+np <- np |>
+  distinct(unit_code, year, .keep_all = TRUE)
+```
+
+> After that cleaning, what does one row represent? How many parks are represented? What years does the file cover? One row represents one park for each year. 60 parks are represented. The file covers 1904 to 2016.
+
+```{r}
+#| warning: false
+n_distinct(np$gnis_id)
+range(np$year)
+
+```
+
+> Why does the ending year matter for the claims you make later? Since the data ends at 2016, I can't make any claims about the national parks after 2016. This limits the scope of the claims I can make.
+
+# Part 2: Start with the obvious chart
+
+Your audience wants to know how the National Parks compared in 2016.
+
+```{r}
+#| warning: false
+
+parks_2016 <- np |>
+  filter(year == 2016)
+```
+
+> Make the most obvious bar chart: park on the x-axis and 2016 visitors on the y-axis. Don't improve it yet.
+
+```{r}
+#| warning: false
+parks_2016 |>
+  ggplot(aes(x = gnis_id, y = visitors)) +
+  geom_col()
+
+```
+
+> Is the chart technically correct? What makes it difficult to use? Yes, this chart is technically correct. It is difficult to use because it's hard to see the x axis labels because they are on top of each other.
+
+# Part 3: Make the comparison readable
+
+> Revise the chart so the park names are readable and the ordering helps the reader compare visitation.
+
+```{r}
+#| warning: false
+library(forcats)
+parks_2016 |>
+  filter(!is.na(parkname)) |>
+  arrange(desc(visitors)) |>
+  ggplot(aes(x = visitors, y = fct_reorder(parkname, visitors))) +
+  geom_col() +
+  theme(axis.text.y = element_text(size = 6))
+  
+
+```
+
+> Why put park names on the y-axis instead of the x-axis? Some of the park names are quite long, which would take up more space on the x axis than the y axis.
+
+> Why reorder the parks by visitors? This helps increase the readability of the plot by emphasizing the different levels of visitors for each park.
+
+> Should every park get its own color? No, this would be redundant information already given by the y axis labels.
+
+# Part 4: A real visualization problem
+
+Mammoth Cave is the local park we care about. First, find where it ranks in 2016. Mammoth ranks 29th in 2016.
+
+```{r}
+#| warning: false
+parks_2016_ordered <- parks_2016 |>
+  arrange(desc(visitors)) |>
+  filter(!is.na(parkname))
+
+```
+
+Now the design problem:
+
+> A chart of only the top 10 parks makes Mammoth Cave disappear. A chart with 60 equally emphasized parks makes the reader work too hard. Create one visualization that helps a reader understand where Mammoth Cave sits relative to the other National Parks.
+
+There is no one right chart here. Make the one you can defend.
+
+```{r}
+#| warning: false
+parks_2016_ordered <- parks_2016_ordered %>% 
+  mutate(highlight = ifelse(parkname == "Mammoth Cave", "yes", "no"))
+parks_2016_ordered |>
+  ggplot(aes(x = visitors, y = fct_reorder(parkname, visitors), fill = highlight)) +
+  geom_col() +
+  scale_x_log10(labels = scales::number_format()) +
+  theme(axis.text.y = element_text(size = 6)) +
+  scale_fill_manual(values = c("yes" = "#E69F00", "no" = "darkgray"), guide = "none") +
+  labs(x = "log10 of the Number of Visitors", y = "Park Name",
+       title = "Mammoth Cave's Ranking Among National Parks",
+       subtitle = "Data are from 2016.")
+
+```
+
+# Part 5: Defend the choices
+
+> What should the reader notice first when they look at your final chart? The reader should notice the Mammoth Cave bar first when they look at my final chart.
+
+> Name two visualization choices you made deliberately. For each one, explain what that choice helps the reader see. I changed the color of the Mammoth Cave bar to help the reader focus on that particular park in relation to the other parks. I also changed the scale and numeric labels on the x axis to help the reader see the number of visitors more intuitively.
+
+> Name one visualization choice you considered but rejected. Why did you reject it? I considered including only national parks that were close in ranking to Mammoth Cave, but rejected this because it would leave out important data points. This approach would not completely answer the question.
+
+> What does your chart support saying? What does it **not** support saying? My chart supports saying that Mammoth Cave was right in the middle when it comes to visitor traffic in 2016. It does not suppot saying anything about prior or later years.
+
+# Bringing it together
+
+> In 3–4 sentences, answer the question for your reader: where does Mammoth Cave sit among the National Parks? Include one number, one interpretation, and one limitation. Mammoth Cave ranks 29th among the national parks when it comes to number of visitors in the year 2016. Compared to the other national parks, Mammoth Cave is in the middle of the pack. One limitation of this analysis is that this is restricted to 2016.
+
+# Disclosure appendix
+
+> What did you try first? Include the code you wrote and the actual error message, or a clear description of the problem if there was no error.
+>
+> I had 3 problems that I looked up. Problem 1: I was having a hard time decreasing the size of the y axis labels to separate the labels for easier reading. Problem 2: I couldn't remeber how to change the order of the parks based on number of visitors. The function arrange wasn't working for me. Problem 3: I didn't know how to change the color of just one of the bars (Mammoth Cave).
+
+> If you used an AI system: the exact prompt, exactly what it returned, what it got wrong or left unclear, and what you changed. Prompt 1: how to make y axis labels smaller in ggplot R
+>
+> Output 1: To change the size of the y-axis elements in `ggplot2`, you need to use the `theme()` function combined with `element_text(size = ...)`. \[[1](https://stackoverflow.com/questions/14942681/change-size-of-axes-title-and-labels-in-ggplot2), [2](https://ggplot2.tidyverse.org/articles/faq-customising.html)\]
+>
+> Depending on exactly what you want to shrink, you can target the **axis tick numbers** (text) or the **axis title**: \[[1](https://stackoverflow.com/questions/14942681/change-size-of-axes-title-and-labels-in-ggplot2)\]
+>
+> **1. Make the Y-Axis Tick Numbers Smaller**
+>
+> To shrink the numeric values or category names along the y-axis, use **`axis.text.y`**: \[[1](https://ggplot2.tidyverse.org/articles/faq-customising.html)\]
+>
+> **R**
+>
+> ```         
+> library(ggplot2)  ggplot(mpg, aes(x = displ, y = hwy)) +   geom_point() +   theme(axis.text.y = element_text(size = 8)) # Adjust size number as needed 
+> ```
+>
+> Use code with caution.
+>
+> **2. Make the Y-Axis Title Smaller**
+>
+> To shrink the overall label text of the y-axis (e.g., "hwy"), use **`axis.title.y`**: \[[1](https://ggplot2.tidyverse.org/articles/faq-customising.html)\]
+>
+> **R**
+>
+> ```         
+> ggplot(mpg, aes(x = displ, y = hwy)) +   geom_point() +   theme(axis.title.y = element_text(size = 10))  
+> ```
+>
+> Use code with caution.
+>
+> **3. Change Both at Once (Both X and Y Axes)**
+>
+> If you want to apply the smaller font size to both the x and y axes simultaneously, omit the `.y` suffix: \[[1](https://www.youtube.com/watch?v=56k25VDe0Qs), [2](https://ggplot2.tidyverse.org/articles/faq-customising.html)\]
+>
+> **R**
+>
+> ```         
+> ggplot(mpg, aes(x = displ, y = hwy)) +   geom_point() +   theme(     axis.text = element_text(size = 8),   # Shrinks tick numbers on both axes     axis.title = element_text(size = 10)  # Shrinks titles on both axes   ) 
+> ```
+>
+> Use code with caution.
+>
+> ⚠️ **Important Ordering Note:** If you are using a built-in template like `theme_bw()` or `theme_minimal()`, ensure your custom `theme()` call is placed **after** the template layer. Otherwise, the template's default settings will overwrite your custom font sizes. \[[1](https://forum.posit.co/t/unable-to-change-size-on-axis-in-ggplot/100800)\]
+>
+> If your labels are still overlapping or cutting off, I can help you fix it. Are you trying to deal with **long text labels**, or are you just looking to adjust the **overall visual scaling** of the plot?
+>
+> Prompt 2: how to reorder y axis in ggplot R
+>
+> Output 2: o reorder a discrete (categorical) y-axis in `ggplot2`, you need to **change the underlying factor levels of that variable**. By default, R sorts characters alphabetically from bottom to top.
+>
+> You can sort your y-axis using three primary approaches, depending on what dictates the new order.
+>
+> **1. Reorder by Another Column's Value (Most Common)**
+>
+> If you want to sort your y-axis labels based on a numeric value (e.g., sorting names by their sales or scores), the easiest way is using `fct_reorder()` from the `forcats` package (included in `tidyverse`). \[[1](https://r-graph-gallery.com/267-reorder-a-variable-in-ggplot2.html)\]
+>
+> **R**
+>
+> ```         
+> library(ggplot2) library(dplyr) library(forcats)  # Ascending order (lowest at the bottom, highest at the top) ggplot(df, aes(x = numeric_value, y = fct_reorder(y_variable, numeric_value))) +   geom_point()  # Descending order (highest at the bottom, lowest at the top) ggplot(df, aes(x = numeric_value, y = fct_reorder(y_variable, numeric_value, .desc = TRUE))) +   geom_point() 
+> ```
+>
+> Use code with caution.
+>
+> *Alternative (Base R):* You can also use `reorder(y_variable, numeric_value)` inside your aesthetics mapping. \[[1](https://stackoverflow.com/questions/18401931/ggplot2-ordering-y-axis)\]
+>
+> **2. Reorder Manually (Specific Custom Order)**
+>
+> If you want to define a specific, explicit order for your categories, use `fct_relevel()`. \[[1](https://ggplot2.tidyverse.org/articles/faq-reordering.html)\]
+>
+> **R**
+>
+> ```         
+> # Specify the exact order from bottom to top ggplot(df, aes(x = x_variable, y = fct_relevel(y_variable, "Low", "Medium", "High"))) +   geom_point() 
+> ```
+>
+> Use code with caution.
+>
+> **3. Change Order Directly in the ggplot Scale**
+>
+> If you want to reorder the axis purely within the plot layout without touching the data frame or using external packages, use the `limits` argument inside `scale_y_discrete()`. \[[1](https://www.youtube.com/watch?v=AjpfXF5zf-4)\]
+>
+> **R**
+>
+> ```         
+> # Simply list the categories in the order you want them to appear (bottom to top) ggplot(df, aes(x = x_variable, y = y_variable)) +   geom_point() +   scale_y_discrete(limits = c("CategoryC", "CategoryA", "CategoryB")) 
+> ```
+>
+> Use code with caution.
+>
+> *Quick tip for reversing:* If your axis is already exactly how you want it but just completely inverted, you can quickly reverse it by passing `rev(levels(factor(df$y_variable)))` to your limits, or use `scale_y_reverse()` if your y-axis is continuous. \[[1](https://medium.com/@MattOldach_65321/reversing-the-order-of-axis-in-a-ggplot2-scatterplot-b1d729b89118), [2](https://www.youtube.com/watch?v=AjpfXF5zf-4)\]
+>
+> To give you the exact snippet you need, tell me:
+>
+> - What kind of data is on your y-axis? (**names, dates, numbers?**)
+>
+> - What **rule** do you want to use to sort them? (e.g., **alphabetical, highest-to-lowest numerical values, or a custom order**)
+>
+> Prompt 3: how to change color of just one bar in ggplot R
+>
+> Output 3: To change the color of just one bar in a ggplot bar chart, the best approach is to **create a logical or categorical helper variable in your data frame that flags the bar you want to highlight**, map that variable to the `fill` aesthetic, and then define your exact colors using `scale_fill_manual()`. \[[1](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot), [2](https://www.geeksforgeeks.org/r-language/change-the-fill-color-of-one-of-the-dodged-bars-in-ggplot2/)\]
+>
+> Here are the two ways to do this depending on your workflow.
+>
+> **Method 1: The Helper Variable Approach (Recommended)**
+>
+> This method is clean because it dynamically identifies the bar based on data conditions (e.g., matching a category name or a specific threshold). \[[1](https://www.geeksforgeeks.org/r-language/change-the-fill-color-of-one-of-the-dodged-bars-in-ggplot2/)\]
+>
+> **R**
+>
+> ```         
+> library(ggplot2) library(dplyr)  # Sample data data <- data.frame(   category = c("A", "B", "C", "D"),   value = c(15, 24, 12, 18) )  # 1. Create a conditional flag column data <- data %>%    mutate(highlight = ifelse(category == "B", "yes", "no"))  # 2. Plot using fill mapped to the new column ggplot(data, aes(x = category, y = value, fill = highlight)) +   geom_col() + # or geom_bar(stat = "identity")   scale_fill_manual(values = c("yes" = "tomato", "no" = "darkgray"), guide = "none") 
+> ```
+>
+> Use code with caution.
+>
+> - **Why this works:** Mapping `fill = highlight` groups your data into two color buckets. `scale_fill_manual()` assigns `"tomato"` to your target bar and `"darkgray"` to everything else. Setting `guide = "none"` hides the unnecessary color legend. \[[1](https://www.icertglobal.com/community/change-bar-colors-in-ggplot2-geom-bar-r), [2](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot)\]
+>
+> **Method 2: The Hardcoded Vector Approach**
+>
+> If you don't want to modify your data frame, you can map the `fill` aesthetic directly to your x-axis variable and pass a positional vector of colors to `scale_fill_manual()`. \[[1](https://ggplot2.tidyverse.org/articles/faq-bars.html), [2](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot)\]
+>
+> **R**
+>
+> ```         
+> library(ggplot2)  data <- data.frame(   category = c("A", "B", "C", "D"),   value = c(15, 24, 12, 18) )  # Plot by mapping fill to the x-axis variable ggplot(data, aes(x = category, y = value, fill = category)) +   geom_col() +   scale_fill_manual(     values = c("A" = "darkgray", "B" = "tomato", "C" = "darkgray", "D" = "darkgray"),     guide = "none"   ) 
+> ```
+>
+> Use code with caution.
+>
+> - **Why this works:** You explicitly name which category gets which color inside a named vector. Alternatively, you can use an unnamed vector matching the factor order: `values = c("darkgray", "tomato", "darkgray", "darkgray")`. \[[1](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot), [2](https://www.icertglobal.com/community/change-bar-colors-in-ggplot2-geom-bar-r), [3](https://ggplot2.tidyverse.org/articles/faq-bars.html)\]
+>
+> For further help customizing your plot, you can refer to the official [**ggplot2 documentation on bar charts**](https://ggplot2.tidyverse.org/reference/geom_bar.html) or consult solutions discussed by the community on [**Stack Overflow**](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot). \[[1](https://ggplot2.tidyverse.org/reference/geom_bar.html), [2](https://stackoverflow.com/questions/22894102/change-color-of-only-one-bar-in-ggplot)\]
+>
+> If you run into issues, let me know:
+>
+> - Are your bars representing a **discrete category** or a **continuous range**?
+>
+> - Are you making a **grouped (dodged) bar chart**, or a simple single-series chart?
+>
+> I can tailor the exact snippet to match your code.
+
+> If you didn't use one, say so.
+
+# Before you submit
+
+Render in a clean session: restart R, then render. Commit and push the `.qmd`, the `.html`, **and** your saved `.csv`.

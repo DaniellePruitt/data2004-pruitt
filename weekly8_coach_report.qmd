@@ -1,0 +1,209 @@
+---
+title: "Weekly 8: A Report for Coach Getsee"
+author: "Danielle Pruitt"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Overview
+
+Coach Getsee asked us what his pitchers' stuff looks like, specifically their **movement profiles** and their **release profiles**. In class we built a movement profile for Nathan Hale. This week you'll build a short report for one other pitcher.
+
+Your pitcher: Jayson Ingles
+
+The report has two figures:
+
+1.  his **movement profile** (what we did in class)
+2.  his **release geometry**: where the ball leaves his hand
+
+and a short note telling coach what to look at.
+
+A few things:
+
+1.  Add `#| echo: false` to your code blocks. Coach should see charts and words, not code.
+2.  Use a new block when you move to a new task.
+3.  Code goes in the blocks. **Answers go outside them**, as prose.
+4.  Every chart uses a colorblind-safe palette, and each pitch type is **the same color in both figures**.
+
+Due Thursday, November 19 at 8pm.
+
+# Part 1: Get to know your pitcher
+
+This part is for you. It won't go in the report, but you can't build the report without it.
+
+```{r}
+#| echo: false
+#| warning: false
+
+library(tidyverse)
+
+trackman <- read_csv("data/raw/trackman_fall_2026.csv")
+```
+
+We're using the same colors for every pitcher, so that a slider is the same color in every report coach gets. Run this as is. If your pitcher throws a pitch type that isn't here, add it.
+
+```{r}
+#| echo: false
+
+okabe_ito <- unname(palette.colors(palette = "Okabe-Ito")[2:8])
+
+pitch_colors <- c(
+  "Fastball" = okabe_ito[1],
+  "FourSeamFastBall" = okabe_ito[1],
+  "Sinker" = okabe_ito[4],
+  "ChangeUp" = okabe_ito[5],
+  "Splitter" = okabe_ito[2],
+  "Slider" = okabe_ito[3],
+  "Sweeper" = okabe_ito[6],
+  "Curveball" = okabe_ito[7],
+  "Cutter" = "black",
+  "Undefined" = "gray50"
+)
+```
+
+> Filter to your pitcher. How many pitches does he have, and over how many days? Which hand does he throw with? Ingles has 165 pitches over 6 days. He throws with his right hand.
+
+```{r}
+#| echo: false
+#| warning: false
+ingles <- trackman |>
+  filter(Pitcher == "Ingles, Jayson")
+nrow(ingles)
+n_distinct(ingles$Date)
+
+```
+
+> Compare `TaggedPitchType` and `AutoPitchType` for your pitcher. Which column will you use, and why? I'll use the TaggedPitchType because this is probably more reliable.
+
+```{r}
+#| echo: false
+#| warning: false
+ingles |>
+  select(TaggedPitchType, AutoPitchType)
+ingles |>
+  count(TaggedPitchType)
+
+```
+
+> Which pitch types does he throw often enough to say something about? What will you do with the rest? He throws a fastball and slider enough to say something about. I will not include the rest in my visualizations because any claims about changeups and undefined pitches would have a very small sample size.
+
+# Part 2: The report
+
+Everything in this part goes to coach.
+
+## His movement profile
+
+> Make a movement profile for your pitcher that coach can read without you in the room. Use what we did in class: labels instead of a legend, how many pitches are behind each label, the raw pitches in the background, and a title that tells coach what to see.
+
+```{r}
+#| echo: false
+#| warning: false
+ingles <- ingles |>
+  filter(TaggedPitchType == "Fastball" | TaggedPitchType == "Slider")
+
+centers <- ingles |>
+  group_by(TaggedPitchType) |>
+  summarise(
+    n = n(),
+    RelSpeed = mean(RelSpeed, na.rm = TRUE),
+    HorzBreak = mean(HorzBreak, na.rm = TRUE),
+    InducedVertBreak = mean(InducedVertBreak, na.rm = TRUE)
+  )
+
+centers <- centers |> 
+  mutate(label = str_c(TaggedPitchType, " (n = ", n, ")"))
+
+focus_colors <- c(
+  "Fastball" = okabe_ito[1],
+  "Slider" = okabe_ito[3],
+  "ChangeUp" = "gray60"
+)
+
+ingles |>
+  ggplot(aes(x = HorzBreak, y = InducedVertBreak, color = TaggedPitchType,
+             shape = TaggedPitchType)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = pitch_colors) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_label(data = centers, aes(label = label), color = "black") +
+  coord_equal() +
+  labs(title = "Jayson Ingles's Fastball vs Slider Movement",
+       subtitle = "Fastball has 16 more inches of induced vertical break",
+       x = "Horizontal Break (inches)",
+       y = "Induced Vertical Break (inches)") +
+  expand_limits(x = 28) +
+  annotate("segment", x = 20, xend = 21, y = 2.01, yend = 2.01) +
+  annotate("text", x = 22, y = 10, label = "16in", hjust = 0)  +
+  annotate("segment", x = 20, xend = 21, y = 17.5, yend = 17.5) +
+  annotate("segment", x = 21, xend = 21, y = 2.01, yend = 17.5) +
+  theme(legend.position = "none")
+
+```
+
+## His release geometry
+
+`RelSide` and `RelHeight` are where the ball leaves his hand, in feet: side to side, and how high. (Check the glossary for where 0 is.) Coaches care about this because if one pitch comes out of a different spot than the others, a hitter can pick it up early.
+
+> Make a figure that answers: **does every pitch come out of the same place?** The design is up to you. A few things to think about:
+>
+> - Both axes are in feet. What did Wilke say about that?
+> - The differences here might be small. Is a foot the right unit for coach?
+> - Does coach need every pitch, the average for each pitch type, or both?
+> - Each pitch type has to be the same color it was in your movement profile.
+
+```{r}
+#| echo: false
+#| warning: false
+ingles <- ingles |>
+  mutate(RelSide_in = RelSide*12) |>
+  mutate(RelHeight_in = RelHeight*12)
+
+centers_2 <- ingles |>
+  group_by(TaggedPitchType) |>
+  summarise(
+    n = n(),
+    RelSide_in = mean(RelSide_in, na.rm = TRUE),
+    RelHeight_in = mean(RelHeight_in, na.rm = TRUE)
+    )
+
+centers_2 <- centers_2 |> 
+  mutate(label = str_c(TaggedPitchType, " (n = ", n, ")"))
+
+ingles |>
+  ggplot(aes(x = RelSide_in, y = RelHeight_in, color = TaggedPitchType,
+           shape = TaggedPitchType)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = pitch_colors) +
+  coord_equal() +
+  labs(title = "Jayson Ingles's Fastball vs Slider Release Positions",
+       subtitle = "Fastball and Slider Release Points are Similar",
+       x = "Horizontal (inches)",
+       y = "Vertical (inches)") +
+  expand_limits(x = 22)
+
+```
+
+## A note for coach
+
+> In **150 words or fewer**, tell coach what to look at in each figure and what it means for this pitcher. Include one thing he should be careful about (for example, how many pitches something is based on, or which pitch type column you used). From the "Fastball vs. Slider Movement" figure, we can see that fastballs from Jayson Ingles have on average about 16 inches more induced vertical break than Ingles' sliders. Ingles' fastballs also have 15 inches more horizontal break than the sliders, on average. The fastballs tend to break about 10 inches in one direction, while the sliders break 5 inches on average in the other direction. Regarding the release point, Ingles' fastballs on average have a slightly higher vertical position than the sliders. The two pitch types seem to be very similar in release positions and somewhat variable. The tagged pitch type was used for this analysis.
+
+# Part 3: Behind the report
+
+This part is for me, not coach.
+
+> Was there anything in the data you weren't sure about for your pitcher? What did you do about it? I was still unclear about the meanings of some of the variables (like relside, relheight). I asked someone who is more knowledgeable about baseball about these.
+
+# Disclosure appendix
+
+> What did you try first? Include the code you wrote and the actual error message, or a clear description of the problem if there was no error.
+
+> If you used an AI system: the exact prompt, exactly what it returned, what it got wrong or left unclear, and what you changed.
+
+> If you didn't use one, say so. Finally, no AI needed!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# Before you submit
+
+Render in a clean session: restart R, then render. Read your report as if you were coach: does every chart make sense without anything from class? Commit and push the `.qmd` and the `.html`.
